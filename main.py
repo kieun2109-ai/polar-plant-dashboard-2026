@@ -89,29 +89,57 @@ def std_cols(df):
         df["time"] = parsed
     return df
 
-env_file = st.sidebar.file_uploader("환경 CSV / XLSX", type=["csv", "xlsx"])
-growth_file = st.sidebar.file_uploader("생육 CSV / XLSX", type=["csv", "xlsx"])
+st.sidebar.header("📁 업로드 파일 4개")
+file1 = st.sidebar.file_uploader("환경 데이터 1", type=["csv", "xlsx"])
+file2 = st.sidebar.file_uploader("환경 데이터 2", type=["csv", "xlsx"])
+file3 = st.sidebar.file_uploader("생육 데이터 1", type=["csv", "xlsx"])
+file4 = st.sidebar.file_uploader("생육 데이터 2", type=["csv", "xlsx"])
 
-env_df = None
-growth_df = None
+env_files = []
+growth_files = []
 
-if env_file is not None:
-    with st.spinner("환경 데이터를 읽고 있어요..."):
-        env_df = read_file(env_file)
-        if not env_df.empty:
-            env_df = std_cols(env_df)
+if file1 is not None:
+    df1 = read_file(file1)
+    df1 = std_cols(df1) if not df1.empty else df1
+    env_files.append(("환경1", df1))
+if file2 is not None:
+    df2 = read_file(file2)
+    df2 = std_cols(df2) if not df2.empty else df2
+    env_files.append(("환경2", df2))
+if file3 is not None:
+    df3 = read_file(file3)
+    df3 = std_cols(df3) if not df3.empty else df3
+    growth_files.append(("생육1", df3))
+if file4 is not None:
+    df4 = read_file(file4)
+    df4 = std_cols(df4) if not df4.empty else df4
+    growth_files.append(("생육2", df4))
 
-if growth_file is not None:
-    with st.spinner("생육 데이터를 읽고 있어요..."):
-        growth_df = read_file(growth_file)
-        if not growth_df.empty:
-            growth_df = std_cols(growth_df)
+def find_df(df_list, keyword):
+    for name, df in df_list:
+        if keyword in name:
+            return df
+    return None
+
+env_merged = None
+growth_merged = None
+
+if env_files:
+    env_frames = [df for _, df in env_files if not df.empty]
+    if env_frames:
+        env_merged = pd.concat(env_frames, ignore_index=True)
+
+if growth_files:
+    growth_frames = [df for _, df in growth_files if not df.empty]
+    if growth_frames:
+        growth_merged = pd.concat(growth_frames, ignore_index=True)
 
 school_name = ""
-if env_file is not None:
-    school_name = env_file.name.split(".")[0]
-    if "_" in school_name:
-        school_name = school_name.split("_")[0]
+if env_files:
+    for name, df in env_files:
+        if not df.empty and "time" in df.columns:
+            school_name = name
+            break
 
 st.sidebar.divider()
 growth_metrics = st.sidebar.multiselect(
@@ -126,22 +154,22 @@ with tab1:
     try:
         st.header("🌱 연구 배경 및 목적")
         st.write("극지 식물은 낮은 기온과 짧은 생장기 등 혹독한 환경에서 자랍니다. 이 대시보드는 우리 학교 극지식물 개체별 생육 차이를 환경 조건과 함께 살펴보는 도구입니다.")
-        st.write("학교마다 측정 항목이 다를 수 있어, 업로드한 CSV/XLSX의 열 이름을 자동으로 표준화해 사용합니다.")
+        st.write("학교마다 측정 항목이 다를 수 있어, 업로드한 파일의 열 이름을 자동으로 표준화해 사용합니다.")
 
         st.subheader("📊 데이터 요약")
         rows = []
-        if env_df is not None and not env_df.empty:
+        if env_merged is not None and not env_merged.empty:
             period = ""
-            if "time" in env_df.columns:
-                times = env_df["time"].dropna()
+            if "time" in env_merged.columns:
+                times = env_merged["time"].dropna()
                 if len(times) > 0:
                     period = f"{times.min().strftime('%Y-%m-%d')} ~ {times.max().strftime('%Y-%m-%d')}"
-            cols = [c for c in ["temperature", "humidity", "ph", "ec", "co2", "water_temp"] if c in env_df.columns]
-            rows.append(["환경 데이터", school_name or "학교명", f"{len(env_df)}행", period, ", ".join(cols)])
-        if growth_df is not None and not growth_df.empty:
-            cols = [c for c in ["개체번호", "잎 수", "지상부 길이", "지하부 길이", "생중량", "지상부 질량", "지하부 질량"] if c in growth_df.columns]
-            n_ind = growth_df["개체번호"].nunique() if "개체번호" in growth_df.columns else 0
-            rows.append(["생육 데이터", school_name or "학교명", f"{len(growth_df)}행", f"{n_ind}개체", ", ".join(cols)])
+            cols = [c for c in ["temperature", "humidity", "ph", "ec", "co2", "water_temp"] if c in env_merged.columns]
+            rows.append(["환경 데이터", school_name or "학교명", f"{len(env_merged)}행", period, ", ".join(cols)])
+        if growth_merged is not None and not growth_merged.empty:
+            cols = [c for c in ["개체번호", "잎 수", "지상부 길이", "지하부 길이", "생중량", "지상부 질량", "지하부 질량"] if c in growth_merged.columns]
+            n_ind = growth_merged["개체번호"].nunique() if "개체번호" in growth_merged.columns else 0
+            rows.append(["생육 데이터", school_name or "학교명", f"{len(growth_merged)}행", f"{n_ind}개체", ", ".join(cols)])
         if rows:
             st.dataframe(pd.DataFrame(rows, columns=["데이터", "학교", "행 수", "기간", "측정 항목"]), width="stretch")
         else:
@@ -152,14 +180,14 @@ with tab1:
         avg_temp = None
         avg_hum = None
         avg_bio = None
-        if growth_df is not None and not growth_df.empty and "개체번호" in growth_df.columns:
-            total_ind = growth_df["개체번호"].nunique()
-        if env_df is not None and not env_df.empty and "temperature" in env_df.columns:
-            avg_temp = env_df["temperature"].dropna().mean()
-        if env_df is not None and not env_df.empty and "humidity" in env_df.columns:
-            avg_hum = env_df["humidity"].dropna().mean()
-        if growth_df is not None and not growth_df.empty and "생중량" in growth_df.columns:
-            avg_bio = growth_df["생중량"].dropna().mean()
+        if growth_merged is not None and not growth_merged.empty and "개체번호" in growth_merged.columns:
+            total_ind = growth_merged["개체번호"].nunique()
+        if env_merged is not None and not env_merged.empty and "temperature" in env_merged.columns:
+            avg_temp = env_merged["temperature"].dropna().mean()
+        if env_merged is not None and not env_merged.empty and "humidity" in env_merged.columns:
+            avg_hum = env_merged["humidity"].dropna().mean()
+        if growth_merged is not None and not growth_merged.empty and "생중량" in growth_merged.columns:
+            avg_bio = growth_merged["생중량"].dropna().mean()
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -175,14 +203,14 @@ with tab1:
 
 with tab2:
     try:
-        if env_df is None or env_df.empty:
+        if env_merged is None or env_merged.empty:
             st.info("🌡️ 환경 데이터를 업로드하면 그래프를 볼 수 있어요.")
         else:
             st.subheader("📋 환경 데이터 요약")
             s_rows = []
             for col in ["temperature", "humidity", "ph", "ec"]:
-                if col in env_df.columns:
-                    vals = env_df[col].dropna()
+                if col in env_merged.columns:
+                    vals = env_merged[col].dropna()
                     if len(vals) > 0:
                         s_rows.append([col, f"{vals.mean():.2f}", f"{vals.min():.2f}", f"{vals.max():.2f}"])
             if s_rows:
@@ -191,8 +219,8 @@ with tab2:
                 st.info("환경 데이터에 숫자 값이 없습니다.")
 
             st.subheader("📈 일별 환경 변화")
-            if "time" in env_df.columns:
-                dft = env_df.dropna(subset=["time"]).copy()
+            if "time" in env_merged.columns:
+                dft = env_merged.dropna(subset=["time"]).copy()
                 if len(dft) > 0:
                     dft["date"] = dft["time"].dt.strftime("%Y-%m-%d")
                     c1, c2 = st.columns(2)
@@ -204,39 +232,39 @@ with tab2:
                         fig = px.line(dft, x="date", y="humidity", title="습도 변화 (일별 평균)")
                         fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
                         st.plotly_chart(fig, width="stretch")
-                    if "ph" in env_df.columns:
+                    if "ph" in env_merged.columns:
                         fig = px.line(dft, x="date", y="ph", title="pH 변화 (일별 평균)")
                         fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
                         st.plotly_chart(fig, width="stretch")
-                    if "ec" in env_df.columns:
+                    if "ec" in env_merged.columns:
                         fig = px.line(dft, x="date", y="ec", title="EC 변화 (일별 평균)")
                         fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
                         st.plotly_chart(fig, width="stretch")
                 else:
                     st.info("시간 정보가 없습니다.")
             with st.expander("🌱 환경 데이터 원본 + CSV 다운로드"):
-                st.dataframe(env_df, width="stretch")
-                csv = env_df.to_csv(index=False).encode("utf-8-sig")
+                st.dataframe(env_merged, width="stretch")
+                csv = env_merged.to_csv(index=False).encode("utf-8-sig")
                 st.download_button("환경 데이터 다운로드", csv, file_name="환경데이터.csv", mime="text/csv")
     except Exception as e:
         st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
 
 with tab3:
     try:
-        if growth_df is None or growth_df.empty:
+        if growth_merged is None or growth_merged.empty:
             st.info("📊 생육 데이터를 업로드하면 그래프를 볼 수 있어요.")
         else:
             st.subheader("🥇 핵심 결과 카드")
-            if "생중량" in growth_df.columns:
-                bio = growth_df["생중량"].dropna()
+            if "생중량" in growth_merged.columns:
+                bio = growth_merged["생중량"].dropna()
                 if len(bio) > 0:
                     avg_b = bio.mean()
                     max_pos = bio.values.argmax()
                     min_pos = bio.values.argmin()
                     max_v = bio.max()
                     min_v = bio.min()
-                    max_r = growth_df.iloc[max_pos]
-                    min_r = growth_df.iloc[min_pos]
+                    max_r = growth_merged.iloc[max_pos]
+                    min_r = growth_merged.iloc[min_pos]
                     c1, c2, c3 = st.columns(3)
                     with c1:
                         st.metric("평균 생중량", f"{avg_b:.2f}g")
@@ -246,9 +274,9 @@ with tab3:
                         st.metric("최소 생중량 개체", min_r["개체번호"], f"{min_v:.2f}g")
 
             st.subheader("📊 개체별 생육 비교")
-            if "개체번호" in growth_df.columns and "생중량" in growth_df.columns:
-                gcols = ["개체번호"] + [c for c in ["잎 수", "지상부 길이", "지하부 길이", "생중량"] if c in growth_df.columns]
-                g = growth_df[gcols].dropna().groupby("개체번호").mean().reset_index()
+            if "개체번호" in growth_merged.columns and "생중량" in growth_merged.columns:
+                gcols = ["개체번호"] + [c for c in ["잎 수", "지상부 길이", "지하부 길이", "생중량"] if c in growth_merged.columns]
+                g = growth_merged[gcols].dropna().groupby("개체번호").mean().reset_index()
                 g["개체번호"] = g["개체번호"].apply(lambda v: str(int(v)) if isinstance(v, float) and v.is_integer() else str(v))
                 g = g.sort_values("생중량") if "생중량" in g.columns else g
 
@@ -290,8 +318,8 @@ with tab3:
                         bar_chart_metric(m, "개체별 평균 지하부 길이")
 
             st.subheader("📦 생중량 분포")
-            if "생중량" in growth_df.columns:
-                bio = growth_df["생중량"].dropna()
+            if "생중량" in growth_merged.columns:
+                bio = growth_merged["생중량"].dropna()
                 if len(bio) >= 2:
                     fig = px.box(bio, y="생중량", title="생중량 분포")
                     fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
@@ -300,8 +328,8 @@ with tab3:
                     st.info("생중량 데이터가 2개 미만입니다.")
 
             st.subheader("📈 상관관계 분석")
-            if "생중량" in growth_df.columns and "잎 수" in growth_df.columns:
-                dc = growth_df[["생중량", "잎 수"]].dropna()
+            if "생중량" in growth_merged.columns and "잎 수" in growth_merged.columns:
+                dc = growth_merged[["생중량", "잎 수"]].dropna()
                 if len(dc) >= 2:
                     fig = px.scatter(dc, x="잎 수", y="생중량", title="잎 수 vs 생중량")
                     fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
@@ -315,8 +343,8 @@ with tab3:
                     st.write(f"상관계수: {dc['잎 수'].corr(dc['생중량']):.3f}")
                 else:
                     st.info("잎 수와 생중량 데이터가 2개 미만입니다.")
-            if "생중량" in growth_df.columns and "지상부 길이" in growth_df.columns:
-                dc = growth_df[["생중량", "지상부 길이"]].dropna()
+            if "생중량" in growth_merged.columns and "지상부 길이" in growth_merged.columns:
+                dc = growth_merged[["생중량", "지상부 길이"]].dropna()
                 if len(dc) >= 2:
                     fig = px.scatter(dc, x="지상부 길이", y="생중량", title="지상부 길이 vs 생중량")
                     fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
@@ -332,8 +360,8 @@ with tab3:
                     st.info("지상부 길이와 생중량 데이터가 2개 미만입니다.")
 
             with st.expander("🌱 생육 데이터 원본 + CSV 다운로드"):
-                st.dataframe(growth_df, width="stretch")
-                csv = growth_df.to_csv(index=False).encode("utf-8-sig")
+                st.dataframe(growth_merged, width="stretch")
+                csv = growth_merged.to_csv(index=False).encode("utf-8-sig")
                 st.download_button("생육 데이터 다운로드", csv, file_name="생육데이터.csv", mime="text/csv")
     except Exception as e:
         st.warning(f"⚠️ 이 부분은 데이터 형식 때문에 표시하지 못했어요: {e}")
