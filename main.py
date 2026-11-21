@@ -21,16 +21,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 @st.cache_data
-def read_csv(data: bytes):
+def read_file(file):
+    data = file.getvalue()
     for enc in ("utf-8-sig", "cp949"):
         try:
-            return pd.read_csv(io.BytesIO(data), encoding=enc)
+            df = pd.read_csv(io.BytesIO(data), encoding=enc)
+            if not df.empty:
+                return df
         except Exception:
             pass
-    return pd.DataFrame()
-
+    try:
+        return pd.read_excel(io.BytesIO(data))
+    except Exception:
+        return pd.DataFrame()
 
 def std_cols(df):
     df = df.copy()
@@ -67,7 +71,10 @@ def std_cols(df):
         if c in ("time", "개체번호"):
             continue
         if not pd.api.types.is_numeric_dtype(df[c]):
-            num = pd.to_numeric(df[c].astype(str).str.replace(",", "").str.extract(r"(-?\d+\.?\d*)")[0], errors="coerce")
+            num = pd.to_numeric(
+                df[c].astype(str).str.replace(",", "").str.extract(r"(-?\d+\.?\d*)")[0],
+                errors="coerce"
+            )
             if num.notna().mean() >= 0.5:
                 df[c] = num
     if "생중량" not in df.columns and {"지상부 질량", "지하부 질량"} <= set(df.columns):
@@ -82,20 +89,21 @@ def std_cols(df):
         df["time"] = parsed
     return df
 
-
-env_file = st.sidebar.file_uploader("환경 CSV", type="csv")
-growth_file = st.sidebar.file_uploader("생육 CSV", type="csv")
+env_file = st.sidebar.file_uploader("환경 CSV / XLSX", type=["csv", "xlsx"])
+growth_file = st.sidebar.file_uploader("생육 CSV / XLSX", type=["csv", "xlsx"])
 
 env_df = None
 growth_df = None
+
 if env_file is not None:
     with st.spinner("환경 데이터를 읽고 있어요..."):
-        env_df = read_csv(env_file.getvalue())
+        env_df = read_file(env_file)
         if not env_df.empty:
             env_df = std_cols(env_df)
+
 if growth_file is not None:
     with st.spinner("생육 데이터를 읽고 있어요..."):
-        growth_df = read_csv(growth_file.getvalue())
+        growth_df = read_file(growth_file)
         if not growth_df.empty:
             growth_df = std_cols(growth_df)
 
@@ -118,7 +126,7 @@ with tab1:
     try:
         st.header("🌱 연구 배경 및 목적")
         st.write("극지 식물은 낮은 기온과 짧은 생장기 등 혹독한 환경에서 자랍니다. 이 대시보드는 우리 학교 극지식물 개체별 생육 차이를 환경 조건과 함께 살펴보는 도구입니다.")
-        st.write("학교마다 측정 항목이 다를 수 있어, 업로드한 CSV의 열 이름을 자동으로 표준화해 사용합니다.")
+        st.write("학교마다 측정 항목이 다를 수 있어, 업로드한 CSV/XLSX의 열 이름을 자동으로 표준화해 사용합니다.")
 
         st.subheader("📊 데이터 요약")
         rows = []
@@ -187,7 +195,6 @@ with tab2:
                 dft = env_df.dropna(subset=["time"]).copy()
                 if len(dft) > 0:
                     dft["date"] = dft["time"].dt.strftime("%Y-%m-%d")
-                    dates = sorted(dft["date"].unique())
                     c1, c2 = st.columns(2)
                     with c1:
                         fig = px.line(dft, x="date", y="temperature", title="온도 변화 (일별 평균)")
